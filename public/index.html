@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>실시간 바둑 미니버전 3탄</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5efe2;
+      color: #222;
+    }
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 14px;
+    }
+    .card {
+      background: #fffaf0;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    .sub {
+      font-size: 16px;
+      color: #555;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    input, button {
+      font-size: 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid #d8ccb0;
+    }
+    button {
+      cursor: pointer;
+      background: #ead7ad;
+      font-weight: bold;
+    }
+    .game-layout {
+      display: grid;
+      grid-template-columns: 1fr 330px;
+      gap: 16px;
+    }
+    .board-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: auto;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      grid-template-rows: repeat(9, 1fr);
+      width: min(88vw, 680px);
+      height: min(88vw, 680px);
+      background: #d7a95b;
+      border: 8px solid #8c5d20;
+      border-radius: 12px;
+      padding: 8px;
+      gap: 0;
+    }
+    .cell {
+      position: relative;
+      border: 1px solid rgba(60, 35, 5, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.04);
+      user-select: none;
+      min-width: 0;
+      min-height: 0;
+    }
+    .cell:hover {
+      background: rgba(255,255,255,0.14);
+    }
+    .stone {
+      width: 72%;
+      height: 72%;
+      border-radius: 999px;
+      box-shadow: inset 0 3px 10px rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .black { background: #111; }
+    .white { background: #f4f4f4; border: 1px solid #bbb; }
+    .side h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+    .status {
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .small {
+      color: #666;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .my-info {
+      font-size: 18px;
+      font-weight: bold;
+      color: #7a4d00;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .chat-box {
+      height: 300px;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid #e5d8bb;
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .msg {
+      margin-bottom: 8px;
+      font-size: 16px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .system {
+      color: #8a5a00;
+      font-weight: bold;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .spectators {
+      margin-top: 8px;
+    }
+    @media (max-width: 800px) {
+      .game-layout { grid-template-columns: 1fr; }
+      .board { width: min(94vw, 560px); height: min(94vw, 560px); }
+      h1 { font-size: 28px; }
+      .status { font-size: 18px; }
+      .my-info { font-size: 17px; }
+      input, button { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>실시간 바둑 미니버전 3탄</h1>
+      <div class="sub">관전자 모드, 간단한 패 규칙, 기본 따냄, 자살수 방지가 들어간 버전입니다.</div>
+      <div class="row">
+        <input id="nickname" placeholder="닉네임" value="플레이어" />
+        <input id="roomId" placeholder="방번호" value="room1" />
+        <button id="joinBtn">방 입장</button>
+      </div>
+    </div>
+
+    <div class="game-layout">
+      <div class="card board-wrap">
+        <div id="board" class="board"></div>
+      </div>
+
+      <div class="side">
+        <div class="card">
+          <h2>대국 정보</h2>
+          <div id="myInfo" class="my-info">내 정보: 아직 입장 전</div>
+          <div id="status" class="status">방에 입장해 주세요.</div>
+          <div id="players" class="small">흑: 없음<br>백: 없음</div>
+          <div id="spectators" class="small spectators">관전자: 없음</div>
+          <div class="controls" style="margin-top:12px;">
+            <button id="giveUpBtn">기권</button>
+            <button id="resetBtn">새 게임</button>
+          </div>
+          <div class="small" style="margin-top:12px;">
+            포함 기능:<br>
+            - 실시간 2인 대국<br>
+            - 관전자 입장<br>
+            - 기본 따냄<br>
+            - 자살수 방지<br>
+            - 간단한 패 규칙<br>
+            - 채팅
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>채팅</h2>
+          <div id="chatBox" class="chat-box"></div>
+          <div class="row">
+            <input id="chatInput" placeholder="메시지 입력" style="flex:1;" />
+            <button id="sendBtn">전송</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const playersEl = document.getElementById('players');
+    const spectatorsEl = document.getElementById('spectators');
+    const myInfoEl = document.getElementById('myInfo');
+    const chatBox = document.getElementById('chatBox');
+    const joinBtn = document.getElementById('joinBtn');
+    const giveUpBtn = document.getElementById('giveUpBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatInput = document.getElementById('chatInput');
+    const nicknameInput = document.getElementById('nickname');
+    const roomIdInput = document.getElementById('roomId');
+
+    let state = {
+      board: Array.from({ length: 9 }, () => Array(9).fill(0)),
+      players: [],
+      spectators: [],
+      turn: 1,
+      status: 'waiting',
+      winner: 0,
+      moveCount: 0,
+      chat: [],
+    };
+
+    let myInfo = {
+      nickname: '',
+      role: 'none',
+      stone: 0,
+      roomId: '',
+    };
+
+    function stoneText(v) {
+      if (v === 1) return '흑';
+      if (v === 2) return '백';
+      return '없음';
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      for (let y = 0; y < 9; y++) {
+        for (let x = 0; x < 9; x++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.onclick = () => socket.emit('placeStone', { x, y });
+
+          const value = state.board[y][x];
+          if (value !== 0) {
+            const stone = document.createElement('div');
+            stone.className = 'stone ' + (value === 1 ? 'black' : 'white');
+            cell.appendChild(stone);
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function renderPlayers() {
+      const black = state.players.find(p => p.stone === 1);
+      const white = state.players.find(p => p.stone === 2);
+      playersEl.innerHTML = `흑: ${black ? black.nickname : '없음'}<br>백: ${white ? white.nickname : '없음'}`;
+    }
+
+    function renderSpectators() {
+      if (!state.spectators || state.spectators.length === 0) {
+        spectatorsEl.innerHTML = '관전자: 없음';
+        return;
+      }
+      spectatorsEl.innerHTML = '관전자: ' + state.spectators.map(s => s.nickname).join(', ');
+    }
+
+    function renderStatus() {
+      let text = `상태: ${state.status === 'playing' ? '대국중' : state.status === 'finished' ? '종료' : '대기중'}<br>`;
+      text += `현재 차례: ${stoneText(state.turn)}<br>`;
+      text += `착수 수: ${state.moveCount}`;
+      if (state.winner) text += `<br>승자: ${stoneText(state.winner)}`;
+      statusEl.innerHTML = text;
+    }
+
+    function renderMyInfo() {
+      let text = `내 정보: ${myInfo.nickname || '없음'}<br>`;
+      if (myInfo.role === 'player') {
+        text += `역할: 대국자 (${stoneText(myInfo.stone)})`;
+      } else if (myInfo.role === 'spectator') {
+        text += `역할: 관전자`;
+      } else {
+        text += `역할: 아직 입장 전`;
+      }
+      myInfoEl.innerHTML = text;
+    }
+
+    function renderChat() {
+      chatBox.innerHTML = '';
+      for (const item of state.chat || []) {
+        const div = document.createElement('div');
+        div.className = 'msg' + (item.system ? ' system' : '');
+        div.textContent = item.system ? item.message : `${item.nickname}: ${item.message}`;
+        chatBox.appendChild(div);
+      }
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    joinBtn.onclick = () => {
+      socket.emit('joinRoom', {
+        roomId: roomIdInput.value,
+        nickname: nicknameInput.value,
+      });
+    };
+
+    giveUpBtn.onclick = () => socket.emit('giveUp');
+    resetBtn.onclick = () => socket.emit('resetGame');
+
+    sendBtn.onclick = () => {
+      if (!chatInput.value.trim()) return;
+      socket.emit('chatMessage', chatInput.value);
+      chatInput.value = '';
+    };
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendBtn.click();
+    });
+
+    socket.on('myInfo', (info) => {
+      myInfo = info;
+      renderMyInfo();
+    });
+
+    socket.on('roomState', (roomState) => {
+      state = roomState;
+      renderBoard();
+      renderPlayers();
+      renderSpectators();
+      renderStatus();
+      renderChat();
+    });
+
+    socket.on('joinError', (message) => {
+      alert(message);
+    });
+
+    renderBoard();
+    renderPlayers();
+    renderSpectators();
+    renderStatus();
+    renderMyInfo();
+    renderChat();
+  </script>
+</body>
+</html>
